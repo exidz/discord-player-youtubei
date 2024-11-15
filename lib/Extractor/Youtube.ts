@@ -15,7 +15,7 @@ import {
 } from "discord-player";
 
 import Innertube, { Platform, YTNodes } from "youtubei.js";
-import { Agent } from "undici";
+import { Agent, ProxyAgent } from "undici";
 import {
   type DownloadOptions,
   InnerTubeConfig,
@@ -33,6 +33,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { tokenToObject } from "../common/tokenUtils";
 import { createReadableFromWeb } from "../common/webToReadable";
 import { type PoTokenResult } from "bgutils-js";
+
+export interface ProxyOptions {
+  uri: string;
+}
 
 export interface StreamOptions {
   useClient?: InnerTubeClient;
@@ -68,6 +72,7 @@ export interface YoutubeiOptions {
   innertubeConfigRaw?: InnerTubeConfig;
   trustedTokens?: TrustedTokenConfig;
   cookie?: string;
+  proxyOptions?: ProxyOptions;
 }
 
 export interface AsyncTrackingContext {
@@ -144,20 +149,30 @@ export class YoutubeiExtractor extends BaseExtractor<YoutubeiOptions> {
       ...INNERTUBE_OPTIONS,
       fetch: (input, init) => {
         let requestInit: globalThis.RequestInit = {
-          ...init
-        }
+          ...init,
+        };
 
         try {
-          const rotator = this.context.player.routePlanner?.getIP();
-          
-          if(rotator?.ip) {
+          if (this.options.proxyOptions) {
             this.context.player.debug(
-              `[EXT: discord-player-youtubei] APPLYING IP ROTATION CONFIG. ATTEMPTING TO USE ${rotator.ip}`
+              `[EXT: discord-player-youtubei] APPLYING PROXY CONFIG. ATTEMPTING TO USE ${this.options.proxyOptions.uri}`,
+            );
+
+            // Create proxy agent using undici's ProxyAgent
+            const proxyAgent = new ProxyAgent(this.options.proxyOptions.uri);
+            // @ts-expect-error
+            requestInit.dispatcher = proxyAgent;
+          }
+          const rotator = this.context.player.routePlanner?.getIP();
+
+          if (rotator?.ip) {
+            this.context.player.debug(
+              `[EXT: discord-player-youtubei] APPLYING IP ROTATION CONFIG. ATTEMPTING TO USE ${rotator.ip}`,
             );
             // @ts-expect-error
             requestInit.dispatcher = new Agent({
               localAddress: rotator.ip,
-            })
+            });
           }
         } catch {
           // noop
